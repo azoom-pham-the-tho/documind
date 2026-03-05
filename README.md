@@ -4,7 +4,7 @@
 
 <h1 align="center">RAG Search</h1>
 <p align="center">
-  <strong>Tìm kiếm tài liệu thông minh với AI — 100% cục bộ, bảo mật tuyệt đối</strong>
+  <strong>Ứng dụng tìm kiếm tài liệu thông minh — triển khai mô hình RAG hoàn chỉnh trên desktop</strong>
 </p>
 
 <p align="center">
@@ -15,321 +15,409 @@
 
 ---
 
-## 📖 RAG là gì? Tại sao cần RAG Search?
+## Mô hình RAG là gì?
 
-**RAG (Retrieval-Augmented Generation)** là kỹ thuật kết hợp "tìm kiếm" + "AI" để trả lời câu hỏi dựa trên tài liệu thực tế.
+**RAG (Retrieval-Augmented Generation)** là một kiến trúc AI gồm 3 giai đoạn:
 
-> **Vấn đề**: ChatGPT / Gemini rất giỏi, nhưng chúng **không biết nội dung tài liệu riêng của bạn** (file công ty, hóa đơn, báo cáo...).
+```
+  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+  │  RETRIEVAL   │ ───→ │ AUGMENTATION │ ───→ │ GENERATION   │
+  │  Tìm kiếm   │      │  Bổ sung     │      │  Sinh câu    │
+  │  tài liệu   │      │  ngữ cảnh    │      │  trả lời     │
+  └─────────────┘      └─────────────┘      └─────────────┘
+```
 
-> **Giải pháp RAG**: Trước khi hỏi AI, hệ thống **tìm kiếm** trong tài liệu của bạn → lấy phần liên quan nhất → **đưa vào prompt** cho AI đọc → AI trả lời chính xác kèm nguồn trích dẫn.
+**Tại sao cần RAG?** — AI (ChatGPT, Gemini) rất giỏi ngôn ngữ, nhưng chúng **không biết nội dung tài liệu riêng của bạn**. RAG giải quyết bằng cách: tìm thông tin liên quan trong tài liệu trước → đưa vào prompt → AI trả lời chính xác kèm nguồn trích dẫn.
 
-### So sánh nhanh
+Nhưng trước khi "Retrieval" hoạt động được, cần **một giai đoạn chuẩn bị** để tài liệu sẵn sàng được tìm kiếm. Vậy thực tế, một hệ thống RAG hoàn chỉnh có **4 giai đoạn**:
 
-|                            | Hỏi AI thường   | RAG Search                                |
-| -------------------------- | --------------- | ----------------------------------------- |
-| AI biết nội dung file bạn? | ❌ Không        | ✅ Có — tìm và đọc file trước khi trả lời |
-| Có nguồn trích dẫn?        | ❌ Không        | ✅ Có — ghi rõ từ file nào, trang nào     |
-| Dữ liệu lưu ở đâu?         | Gửi lên cloud   | 🏠 100% trên máy bạn                      |
-| Hỗ trợ file gì?            | Copy-paste text | 📄 75+ format: PDF, Excel, Word, ảnh...   |
+```
+  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+  │  INGESTION   │ ───→ │  RETRIEVAL   │ ───→ │ AUGMENTATION │ ───→ │ GENERATION   │
+  │              │      │              │      │              │      │              │
+  │  Nạp & xử lý│      │  Tìm kiếm    │      │  Lọc, xếp    │      │  AI sinh     │
+  │  tài liệu   │      │              │      │  hạng, ghép   │      │  câu trả lời │
+  └─────────────┘      └─────────────┘      └─────────────┘      └─────────────┘
+    Chạy 1 lần           Mỗi câu hỏi         Mỗi câu hỏi         Mỗi câu hỏi
+    (+ auto sync)
+```
+
+Dưới đây là cách **RAG Search** triển khai từng giai đoạn.
 
 ---
 
-## 🎯 Ứng dụng thực tế
+## Giai đoạn 1: Ingestion — Nạp & xử lý tài liệu
 
-- 📊 Tra cứu nhanh trong hàng trăm file Excel hóa đơn, báo cáo
-- 📝 Hỏi tóm tắt nội dung file Word/PDF dài
-- 🔍 Tìm thông tin cụ thể (tên, số tiền, ngày tháng) trong chồng tài liệu
-- 📸 OCR ảnh chụp tài liệu → tìm kiếm nội dung trong ảnh
-- 🗂️ Thêm thư mục → hệ thống tự đồng bộ khi file thay đổi
-
----
-
-## 🏗️ Cách hệ thống hoạt động
-
-RAG Search có **3 luồng xử lý chính**:
-
-### Luồng 1: Nạp dữ liệu (Data Ingestion)
-
-> _Khi bạn thêm thư mục tài liệu vào app_
+> _"Biến tài liệu thô thành dữ liệu có thể tìm kiếm"_
 
 <p align="center">
   <img src="docs/flow-ingestion.png" width="700" alt="Data Ingestion Flow"/>
 </p>
 
-**Giải thích từng bước:**
+Khi người dùng thêm thư mục, hệ thống thực hiện 4 bước:
 
-1. **Thêm thư mục** — Bạn chọn thư mục chứa tài liệu cần tìm kiếm
-2. **Quét file** — Hệ thống phát hiện tất cả file được hỗ trợ (PDF, DOCX, XLSX, ảnh, HTML, v.v.)
-3. **Parse & Extract** — Mỗi file được đọc bởi engine `Kreuzberg`:
-   - PDF → extract text + giữ cấu trúc bảng
-   - Excel → đọc từng sheet, giữ header
-   - Ảnh (JPG, PNG) → chạy OCR (Tesseract) nhận dạng chữ
-4. **Tạo chunks** — Text được cắt thành đoạn nhỏ ~2KB (có overlap để không mất ngữ cảnh giữa 2 đoạn)
-5. **Index kép** — Cùng 1 bộ chunks được đưa vào **2 index song song**:
-   - 🔤 **BM25 Index** (Tantivy): Đánh chỉ mục theo từ khóa — tìm chính xác theo keyword
-   - 🧠 **Vector Index** (HNSW): Gọi Gemini API chuyển text → vector 768 chiều — tìm theo ngữ nghĩa (hiểu đồng nghĩa, câu tương tự)
+### Bước 1 — Document Parsing (Đọc file)
 
-> 💡 **Tại sao cần 2 index?**
->
-> - BM25 giỏi tìm chính xác: "hóa đơn số 12345" → match đúng "12345"
-> - Vector giỏi hiểu ngữ nghĩa: "chi phí vận chuyển" ≈ "phí ship hàng"
-> - Kết hợp cả hai → kết quả tốt nhất
+Hệ thống dùng engine **Kreuzberg** (Rust) để đọc 75+ định dạng file:
 
----
+| Loại        | Formats               | Cách xử lý                                    |
+| ----------- | --------------------- | --------------------------------------------- |
+| Văn bản     | PDF, DOCX, ODT, RTF   | Extract text + giữ cấu trúc heading           |
+| Bảng tính   | XLSX, XLS, ODS, CSV   | Đọc từng sheet, giữ header cột                |
+| Trình chiếu | PPTX, PPT, ODP        | Extract text từ slides                        |
+| Web         | HTML, XML, JSON, YAML | Parse markup → plain text                     |
+| Ảnh         | JPG, PNG, TIFF, BMP   | **OCR** (Tesseract) — nhận dạng chữ trong ảnh |
 
-### Luồng 2: Chat với AI (AI Chat Pipeline)
+> 💡 **OCR được bundle sẵn trong app** (Tesseract static-linked + tessdata Eng/Vie/Jpn) — người dùng không cần cài thêm gì.
 
-> _Khi bạn gõ câu hỏi và nhấn Enter_
+### Bước 2 — Chunking (Chia nhỏ văn bản)
 
-<p align="center">
-  <img src="docs/flow-chat.png" width="600" alt="AI Chat Pipeline"/>
-</p>
+Tài liệu dài không thể đưa nguyên vào AI (giới hạn context window). Hệ thống chia thành **chunks** ~2KB với overlap:
 
-**Giải thích từng layer:**
+```
+Tài liệu gốc (50 trang):
+┌──────────────────────────────────────────────────┐
+│ ▓▓▓▓▓▓▓▓▓ Chunk 1 (2KB) ▓▓▓▓▓▓▓▓▓              │
+│              ░░░ overlap ░░░                      │
+│              ▓▓▓▓▓▓▓▓▓ Chunk 2 (2KB) ▓▓▓▓▓▓▓▓▓  │
+│                           ░░░ overlap ░░░         │
+│                           ▓▓▓▓▓▓▓▓▓ Chunk 3 ...  │
+└──────────────────────────────────────────────────┘
+```
 
-**L0 — Fast Follow-up Check** `(<1ms)`
+- **Excel/ODS**: Chunk 4KB (lớn hơn để giữ nguyên bảng)
+- **PDF/DOCX**: Chunk 2KB, overlap 200 chars (đảm bảo không cắt giữa câu)
 
-- Nếu câu hỏi là follow-up ("thêm chi tiết", "còn gì nữa không", "nó là gì") → **bỏ qua tìm kiếm**, dùng lại context cũ
-- Phát hiện bằng: đại từ ("nó", "đó"), từ tiếp nối ("thêm", "tiếp tục"), hoặc keyword trùng >40%
-- **Nếu hỏi topic mới** → luôn search lại, KHÔNG dùng context cũ
+### Bước 3 — Dual Indexing (Index kép)
 
-**L1 — AI Keyword Extraction** `(~1.5s)`
+Mỗi chunk được đưa vào **2 hệ thống tìm kiếm cùng lúc**:
 
-- Gọi Gemini Flash trích từ khóa thông minh
-- VD: _"cho tôi hóa đơn tháng 3 của công ty ABC"_ → keywords: `"hóa đơn", "tháng 3", "ABC"`
-- Hiểu context từ lịch sử chat → biết "nó" chỉ cái gì
-- Nếu AI chậm/lỗi → fallback sang heuristic (cắt stop words)
+```
+                    ┌───────────────────────────────┐
+                    │        Text Chunks             │
+                    │   (từ bước chunking)           │
+                    └───────────┬───────────────────┘
+                                │
+                   ┌────────────┴────────────┐
+                   ▼                         ▼
+        ┌──────────────────┐      ┌──────────────────┐
+        │  BM25 Index       │      │  Vector Index     │
+        │  (Tantivy)        │      │  (HNSW Graph)     │
+        │                   │      │                   │
+        │  Đánh chỉ mục     │      │  text → Gemini    │
+        │  theo từ khóa     │      │  Embedding API    │
+        │                   │      │  → vector 768-dim │
+        │  Giỏi tìm chính  │      │                   │
+        │  xác: "hóa đơn   │      │  Giỏi tìm ngữ    │
+        │  số 12345"        │      │  nghĩa: "chi phí  │
+        │                   │      │  ship" ≈ "phí vận │
+        │                   │      │  chuyển"          │
+        └──────────────────┘      └──────────────────┘
+```
 
-**L2 — Hybrid Search** `(~40ms)`
+**Tại sao cần 2 index?**
 
-- Chạy **song song** 2 engine:
-  - BM25: tìm theo từ khóa chính xác
-  - Vector: tìm theo ngữ nghĩa (cosine similarity)
-- Merge kết quả → xếp hạng theo composite score
+- Tìm `"ABC-12345"` → BM25 match chính xác, vector có thể miss
+- Tìm `"chi phí vận chuyển"` → Vector hiểu đồng nghĩa với "phí ship", BM25 miss
+- **Kết hợp cả hai = kết quả tốt nhất** — đây gọi là **Hybrid Search**
 
-**L3 — Context Builder** `(~5ms)`
-
-- Chọn top chunks phù hợp nhất (scoring: chunk phải chứa ≥50% keywords)
-- Giới hạn context theo loại câu hỏi:
-  - Tra cứu nhanh → 40K chars
-  - Tóm tắt → 120K chars (cần đọc nhiều)
-- **PII masking**: che số điện thoại, email trước khi gửi AI
-
-**L4 — AI Streaming Response**
-
-- Gửi context + câu hỏi tới Gemini
-- Nhận response kiểu streaming (từng từ một, như ChatGPT)
-- AI tự cite nguồn: _"Theo file invoices.xlsx [1]..."_
-- Xử lý rate limit: nếu key bị giới hạn → tự rotate sang key khác
-
----
-
-### Luồng 3: Đồng bộ thay đổi (File Watcher)
-
-> _Khi file trong thư mục bị thay đổi (thêm, sửa, xóa)_
+### Bước 4 — Auto Sync (Đồng bộ tự động)
 
 <p align="center">
   <img src="docs/flow-watcher.png" width="600" alt="File Watcher Flow"/>
 </p>
 
-**Giải thích từng bước:**
+Hệ thống dùng **OS-native file watcher** lắng nghe thay đổi file:
 
-1. **OS File Watcher** — Dùng API hệ điều hành để lắng nghe thay đổi:
-   - macOS: FSEvents (kernel-level, cực nhanh)
-   - Windows: ReadDirectoryChangesW
-2. **Phát hiện thay đổi** — File mới, file sửa, file xóa
-3. **Debounce 2s** — Đợi 2 giây gom batch (tránh xử lý từng file khi copy hàng loạt)
-4. **Xử lý**:
-   - File mới/sửa → parse lại + cập nhật BM25 + tạo vector mới
-   - File xóa → xóa khỏi tất cả index
-5. **Thông báo UI** — Gửi event cho frontend hiển thị badge
+- macOS: FSEvents (kernel-level)
+- Windows: ReadDirectoryChangesW
 
-**Bonus — Startup Diff**: Khi mở app, hệ thống so sánh DB vs filesystem → phát hiện file thay đổi khi app đang tắt → tự re-index.
+Khi file thêm/sửa/xóa → tự động re-index (debounce 2s) → người dùng luôn tìm kiếm trên dữ liệu mới nhất.
+
+**Startup Diff**: Khi mở app, so sánh DB vs filesystem → phát hiện thay đổi xảy ra khi app đang tắt.
 
 ---
 
-## 🔧 Công nghệ sử dụng
+## Giai đoạn 2: Retrieval — Tìm kiếm
+
+> _"Từ câu hỏi, tìm ra chunks liên quan nhất"_
+
+<p align="center">
+  <img src="docs/flow-chat.png" width="600" alt="AI Chat Pipeline"/>
+</p>
+
+Khi người dùng gõ câu hỏi, hệ thống trải qua **4 layer xử lý**:
+
+### Layer 0 — Fast Follow-up Detection `(<1ms)`
+
+Trước khi tìm kiếm, hệ thống kiểm tra: _"Đây có phải câu hỏi tiếp nối không?"_
+
+| Signal              | Ví dụ                                 | Hành động               |
+| ------------------- | ------------------------------------- | ----------------------- |
+| Đại từ tham chiếu   | "**nó** là gì?", "**file đó** có gì?" | Dùng lại context cũ     |
+| Từ tiếp nối         | "**thêm** chi tiết", "**tiếp tục**"   | Dùng lại context cũ     |
+| Keyword trùng >40%  | Cùng topic với câu trước              | Dùng lại context cũ     |
+| Topic hoàn toàn mới | "Tìm cho tôi về nghiệp vụ X"          | **Tìm kiếm lại từ đầu** |
+
+> Nếu là follow-up → skip hoàn toàn giai đoạn Retrieval → tiết kiệm ~2-3 giây.
+
+### Layer 1 — Keyword Extraction `(~1.5s)`
+
+Dùng **Gemini Flash** (model nhẹ, nhanh) để trích xuất từ khóa thông minh:
+
+```
+Câu hỏi: "Cho tôi hóa đơn tháng 3 năm ngoái của công ty ABC"
+    ↓ AI phân tích
+Keywords: ["hóa đơn", "tháng 3", "ABC"]
+Intent:   "lookup" (tra cứu)
+```
+
+Đặc biệt:
+
+- **Hiểu context hội thoại** — biết "nó" trong câu follow-up chỉ cái gì
+- **Compound term** — giữ nguyên cụm "Test 123" thay vì tách thành "Test" + "123"
+- **Fallback** — nếu AI chậm/lỗi → dùng heuristic (cắt stop words) trong 0ms
+
+### Layer 2 — Hybrid Search `(~40ms)`
+
+Chạy **song song** 2 engine tìm kiếm bằng `tokio::join!`:
+
+```
+Keywords ──→ BM25 Search (Tantivy)   → top 10 kết quả (exact match)
+         └→ Vector Search (HNSW)     → top 15 kết quả (semantic match)
+                        ↓
+                Merge & Re-rank
+                (composite score)
+                        ↓
+              Top files phù hợp nhất
+```
+
+---
+
+## Giai đoạn 3: Augmentation — Bổ sung ngữ cảnh
+
+> _"Chọn lọc và chuẩn bị context tốt nhất cho AI"_
+
+Đây là giai đoạn quan trọng nhất nhưng ít được nói tới. Không phải cứ tìm được tài liệu là đưa hết cho AI — cần **lọc, xếp hạng, cắt gọn** để AI nhận được thông tin chất lượng cao nhất.
+
+### Context Builder — Bộ xây dựng ngữ cảnh
+
+```
+Files tìm được → Score từng chunk → Lọc theo threshold → Budget theo intent → PII mask → Prompt
+```
+
+**Chunk Scoring — AND-majority rule:**
+
+Mỗi chunk được chấm điểm: phải chứa **≥50% keywords** mới tính là phù hợp.
+
+```
+Keywords: ["hóa đơn", "tháng 3", "ABC"]
+
+Chunk A: "Hóa đơn công ty ABC ngày 15/3..."  → 3/3 match = 100% ✅ Chọn
+Chunk B: "Hóa đơn tháng 5 XYZ..."             → 1/3 match = 33%  ❌ Bỏ qua
+Chunk C: "Doanh thu tháng 3 công ty ABC..."   → 2/3 match = 67%  ✅ Chọn
+```
+
+**Dynamic Budget — Ngân sách context theo loại câu hỏi:**
+
+| Intent AI phát hiện    | Budget     | Lý do                      |
+| ---------------------- | ---------- | -------------------------- |
+| `lookup` (tra cứu)     | 40K chars  | Chỉ cần vài dòng chính xác |
+| `summarize` (tóm tắt)  | 120K chars | Cần đọc nhiều để tóm lược  |
+| `compare` (so sánh)    | 80K chars  | Cần dữ liệu từ nhiều nguồn |
+| `aggregate` (thống kê) | 120K chars | Cần dữ liệu đầy đủ         |
+| `extract` (trích xuất) | 80K chars  | Cần context có cấu trúc    |
+
+**PII Masking — Bảo vệ dữ liệu nhạy cảm:**
+
+Trước khi gửi context cho AI, hệ thống che:
+
+- Số điện thoại → `[SĐT]`
+- Email → `[EMAIL]`
+
+> Tài liệu gốc **không bao giờ rời khỏi máy**. Chỉ keyword + context snippet đã lọc được gửi tới AI.
+
+---
+
+## Giai đoạn 4: Generation — AI sinh câu trả lời
+
+> _"AI đọc context, trả lời bằng ngôn ngữ tự nhiên, kèm nguồn trích dẫn"_
+
+### Prompt Engineering
+
+Hệ thống tạo prompt khác nhau tùy loại câu hỏi:
+
+```
+[System Prompt]
+Bạn là trợ lý tìm kiếm tài liệu. Trả lời DỰA TRÊN context được cung cấp.
+Khi trích dẫn, ghi rõ nguồn [1], [2]...
+
+[Context — từ giai đoạn Augmentation]
+=== File: invoices.xlsx ===
+STT | Mã HĐ | Công ty | Tháng | Số tiền
+1   | HD001  | ABC     | 3     | 50,000,000đ
+...
+
+[History — tóm tắt hội thoại trước]
+User hỏi về hóa đơn, tìm được file invoices.xlsx
+
+[User Query]
+Cho tôi hóa đơn tháng 3 của công ty ABC
+```
+
+### Streaming Response
+
+Câu trả lời được stream real-time (từng token):
+
+- Người dùng thấy text xuất hiện dần (như ChatGPT)
+- Không phải đợi AI xong mới hiện
+
+### Citation — Trích dẫn nguồn
+
+AI tự ghi nguồn: _"Theo invoices.xlsx [1], công ty ABC có hóa đơn HD001 trị giá 50 triệu..."_
+
+Hệ thống verify: kiểm tra AI có thực sự dùng file được cung cấp hay "bịa" → chỉ hiện source file nào AI thật sự trích dẫn.
+
+### Multi-key Rotation
+
+Khi API key bị rate limit (429) → tự động chuyển sang key tiếp theo → không gián đoạn trải nghiệm.
+
+---
+
+## Điểm khác biệt so với RAG thông thường
+
+| Tiêu chí       | RAG cloud (LangChain, LlamaIndex) | RAG Search                   |
+| -------------- | --------------------------------- | ---------------------------- |
+| Chạy ở đâu     | Server / Cloud                    | **100% trên máy cá nhân**    |
+| Dữ liệu đi đâu | Upload lên server                 | **Không bao giờ rời máy**    |
+| Cần setup      | Python, Docker, vector DB         | **Download → Cài → Dùng**    |
+| Tìm kiếm       | Thường chỉ vector                 | **Hybrid BM25 + Vector**     |
+| OCR            | Cần cài riêng                     | **Bundle sẵn (Tesseract)**   |
+| Đồng bộ file   | Manual re-index                   | **Auto watcher (OS-native)** |
+| Follow-up      | Search lại mỗi câu                | **Fast follow-up <1ms**      |
+| Ngôn ngữ       | Python (chậm)                     | **Rust (nhanh, type-safe)**  |
+
+---
+
+## Công nghệ sử dụng
 
 ### Backend — Rust
 
-| Thành phần       | Công nghệ                     | Vai trò                                       |
-| ---------------- | ----------------------------- | --------------------------------------------- |
-| Framework        | **Tauri v2**                  | App desktop, IPC bridge (Rust ↔ JS)           |
-| Full-text Search | **Tantivy**                   | BM25 ranking, inverted index ~40ms            |
-| Vector Search    | **HNSW** (instant-distance)   | Cosine similarity 768-dim, O(log n)           |
-| Database         | **SQLite** (rusqlite)         | File tracking, settings, chat history         |
-| Document Parser  | **Kreuzberg**                 | Parse 75+ formats (PDF, DOCX, XLSX...)        |
-| OCR Engine       | **Tesseract** (static-linked) | Nhận dạng chữ trong ảnh (EN + VI + JP)        |
-| AI               | **Gemini API**                | Chat streaming, keyword extraction, embedding |
-| File Watcher     | **notify**                    | OS-native file change detection               |
-| Async Runtime    | **Tokio**                     | Non-blocking I/O, parallel tasks              |
-| CPU Parallelism  | **Rayon**                     | Parallel parse + chunk trên multi-core        |
+| Thành phần       | Công nghệ                     | Vai trò                          |
+| ---------------- | ----------------------------- | -------------------------------- |
+| Framework        | **Tauri v2**                  | Desktop app, IPC bridge          |
+| Full-text Search | **Tantivy**                   | BM25 inverted index              |
+| Vector Search    | **HNSW** (instant-distance)   | 768-dim cosine similarity        |
+| Database         | **SQLite** (rusqlite)         | Metadata, settings, chat history |
+| Document Parser  | **Kreuzberg**                 | 75+ formats + OCR                |
+| OCR              | **Tesseract** (static-linked) | Eng + Vie + Jpn                  |
+| AI API           | **Gemini** (reqwest)          | Chat streaming + embedding       |
+| File Watcher     | **notify**                    | FSEvents / ReadDirectoryChangesW |
+| Async Runtime    | **Tokio**                     | Non-blocking I/O                 |
+| Parallelism      | **Rayon**                     | Multi-core parse + chunk         |
 
-### Frontend — Vanilla JS
+### Frontend — Vanilla JS + CSS
 
-| Thành phần | Mô tả                                        |
-| ---------- | -------------------------------------------- |
-| UI         | Vanilla JS — zero framework, zero build step |
-| Styling    | Custom CSS, dark theme, glassmorphism        |
-| Streaming  | Real-time token-by-token rendering           |
-| Icons      | Lucide Icons                                 |
+- Zero framework, zero build step
+- Dark theme, real-time streaming UI
+- Lucide Icons
 
-### CI/CD
+### CI/CD — GitHub Actions
 
-| Công cụ        | Mô tả                                |
-| -------------- | ------------------------------------ |
-| GitHub Actions | Auto build khi push tag              |
-| Output         | macOS `.dmg` + Windows `.msi`/`.exe` |
+- Auto build khi push tag
+- Output: macOS `.dmg` + Windows `.msi`/`.exe`
 
 ---
 
-## 📊 Hiệu năng
+## Hiệu năng
 
-| Metric                     | Giá trị                       |
-| -------------------------- | ----------------------------- |
-| Tìm kiếm (BM25 + Vector)   | ~40ms                         |
-| Fast follow-up             | <1ms                          |
-| AI keyword extraction      | ~1.5s                         |
-| HNSW vector search         | O(log n) — sub-millisecond    |
-| File watch → re-index      | <2s debounce                  |
-| Phát hiện thay đổi offline | <100ms khi khởi động          |
-| RAM                        | ~50MB base + kích thước index |
-
----
-
-## 🛡️ Bảo mật & Quyền riêng tư
-
-| Nguyên tắc                | Chi tiết                                       |
-| ------------------------- | ---------------------------------------------- |
-| 📁 Tài liệu KHÔNG rời máy | File chỉ được đọc local, không upload          |
-| 🔒 PII masking            | Số điện thoại, email được che trước khi gửi AI |
-| 📤 Gửi gì cho AI?         | Chỉ keywords + đoạn trích nhỏ (đã filter)      |
-| 🔑 API key                | Lưu local trong SQLite                         |
-| 🏠 Index                  | Tantivy + HNSW + SQLite — 100% trên ổ cứng     |
+| Metric                | Giá trị                        |
+| --------------------- | ------------------------------ |
+| Hybrid Search         | ~40ms                          |
+| Fast follow-up        | <1ms                           |
+| HNSW nearest neighbor | O(log n)                       |
+| AI keyword extraction | ~1.5s (timeout → fallback 0ms) |
+| File watch debounce   | 2s                             |
+| Startup diff          | <100ms                         |
 
 ---
 
-## 🚀 Cài đặt & Sử dụng
+## Cài đặt
 
 ### Download
 
-👉 [**Releases**](https://github.com/azoom-pham-the-tho/rag-search/releases) — chọn file phù hợp:
+👉 [**Releases**](https://github.com/azoom-pham-the-tho/rag-search/releases)
 
-- **macOS (Apple Silicon)**: `RAG Search_x.x.x_aarch64.dmg`
-- **macOS (Intel)**: `RAG Search_x.x.x_x64.dmg`
-- **Windows**: `RAG Search_x.x.x_x64-setup.exe`
+- **macOS (Apple Silicon)**: `.dmg`
+- **macOS (Intel)**: `.dmg`
+- **Windows**: `.msi` / `.exe`
 
 ### Yêu cầu
 
 - [Gemini API key](https://aistudio.google.com/apikey) (miễn phí)
 
-### Cài đặt
+### Sử dụng
 
-1. **macOS**: Mở `.dmg` → kéo vào Applications
-2. **Windows**: Chạy `.msi` hoặc `.exe`
-3. Mở app → Settings → Nhập API key
-4. Thêm thư mục tài liệu → Đợi index xong → Bắt đầu tìm kiếm!
+1. Cài đặt app
+2. Settings → Nhập Gemini API key
+3. Thêm thư mục tài liệu → Đợi index
+4. Bắt đầu chat / tìm kiếm!
 
 ### Development
 
 ```bash
-# Yêu cầu: Rust, Node.js, Tesseract
 brew install rust node tesseract
-
-# Clone & chạy
 git clone git@github.com:azoom-pham-the-tho/rag-search.git
-cd rag-search
-npm install
+cd rag-search && npm install
 npm run tauri dev
 ```
 
 ---
 
-## 📂 Cấu trúc dự án
+## Cấu trúc dự án
 
 ```
 ragSearch/
-├── src/                              # 🖥️ Frontend (Vanilla JS)
-│   ├── index.html                    # SPA entry point
+├── src/                              # Frontend (Vanilla JS)
+│   ├── index.html                    # SPA entry
 │   ├── js/
-│   │   ├── api.js                    # Tauri IPC wrapper
-│   │   ├── chat.js                   # AI chat UI (streaming)
-│   │   ├── search.js                 # Search UI
-│   │   ├── folder.js                 # Quản lý thư mục
-│   │   └── settings.js              # Cài đặt
+│   │   ├── api.js                    # Tauri IPC
+│   │   ├── chat.js                   # Chat UI (streaming)
+│   │   ├── folder.js                 # Folder management
+│   │   └── settings.js              # Settings
 │   └── styles/                       # CSS (dark theme)
 │
-├── src-tauri/                        # ⚙️ Backend (Rust)
-│   ├── src/
-│   │   ├── ai/                       # 🧠 Gemini integration
-│   │   │   ├── gemini.rs             # API client (streaming + JSON)
-│   │   │   ├── memory.rs             # Chat history management
-│   │   │   └── model_registry.rs     # Auto-discover models
-│   │   ├── commands/search/          # 🔍 Search pipeline (core)
-│   │   │   ├── pipeline.rs           # Main chatbot pipeline
-│   │   │   ├── context.rs            # Context builder + ranking
-│   │   │   ├── keyword.rs            # Keyword extraction
-│   │   │   └── prompt.rs             # Prompt engineering
-│   │   ├── embedding/                # 📊 Vector embedding
-│   │   │   └── pipeline.rs           # Gemini Embedding API
-│   │   ├── indexer/                   # 📚 Indexing
-│   │   │   ├── tantivy_index.rs      # BM25 full-text search
-│   │   │   └── chunker.rs            # Smart text chunking
-│   │   ├── parser/                    # 📄 Document parsing
-│   │   │   └── mod.rs                # 75+ formats + OCR
-│   │   ├── search/                    # 🎯 Search engines
-│   │   │   ├── hybrid.rs             # BM25 + Vector merger
-│   │   │   └── vector_index.rs       # HNSW (768-dim)
-│   │   └── watcher/                   # 👁️ File watching
-│   │       ├── mod.rs                # OS-native watcher
-│   │       └── handler.rs            # Change event handler
-│   └── tessdata/                      # OCR training data
+├── src-tauri/                        # Backend (Rust)
+│   └── src/
+│       ├── ai/                       # Gemini API client
+│       ├── commands/search/          # RAG pipeline core
+│       │   ├── pipeline.rs           # Orchestrator (4 layers)
+│       │   ├── context.rs            # Context builder (scoring)
+│       │   ├── keyword.rs            # Keyword extraction
+│       │   └── prompt.rs             # Prompt engineering
+│       ├── embedding/                # Vector embedding (Gemini)
+│       ├── indexer/                   # BM25 + Chunker
+│       ├── parser/                    # Document parsing + OCR
+│       ├── search/                    # Hybrid search engine
+│       └── watcher/                   # File change detection
 │
 └── .github/workflows/
-    └── release.yml                    # 🚀 CI/CD auto-build
+    └── release.yml                    # CI/CD
 ```
 
 ---
 
-## 🎓 Kỹ năng áp dụng
+## Kỹ năng áp dụng
 
-### Systems Programming (Rust)
+**Systems Programming** — Rust ownership, async/await, Arc/Mutex, FFI (C++ Tesseract)
 
-- **Ownership & Borrowing** — quản lý bộ nhớ an toàn không cần garbage collector
-- **Async/Await** — xử lý I/O không chặn với Tokio runtime
-- **Thread-safe state** — `Arc<Mutex<T>>`, `RwLock`, `AtomicBool` cho concurrent access
-- **FFI** — tích hợp C++ (Tesseract OCR) qua kreuzberg bindings
-- **Zero-cost abstractions** — trait, generics, enum cho type-safe code
+**Information Retrieval** — BM25, vector embeddings, hybrid search, HNSW, compound term matching
 
-### Information Retrieval (IR)
+**AI Engineering** — RAG pipeline, prompt engineering per intent, streaming LLM, rate limit handling, token budgeting
 
-- **BM25 ranking** — thuật toán xếp hạng theo tần suất từ khóa
-- **Vector embeddings** — chuyển text → không gian 768 chiều, tìm bằng cosine similarity
-- **Hybrid search** — kết hợp lexical + semantic search, ưu điểm cả hai
-- **HNSW** (Hierarchical Navigable Small World) — cấu trúc graph cho approximate nearest neighbor search
-- **Compound term matching** — xử lý cụm từ có khoảng trắng ("Test 123")
+**Desktop Development** — Tauri v2, OS-native file watching, cross-platform bundling, OCR static-linking
 
-### AI Engineering
-
-- **RAG pipeline** — Retrieval → Augment → Generate
-- **Prompt engineering** — prompt khác nhau theo intent (tra cứu, tóm tắt, so sánh)
-- **Streaming LLM** — parse SSE stream real-time
-- **Multi-model support** — auto-discover + key rotation
-- **Rate limit handling** — retry + fallback + key cycling
-- **Token budgeting** — quản lý context window theo loại câu hỏi
-
-### Desktop Application
-
-- **Tauri v2** — native app (Rust backend + Web frontend)
-- **OS-level file watching** — FSEvents (macOS), ReadDirectoryChangesW (Windows)
-- **Cross-platform build** — CI/CD cho macOS ARM64 + Intel + Windows
-- **OCR bundling** — Tesseract static-linked, tessdata bundled
-
-### Frontend
-
-- **Zero-dependency** — Vanilla JS, không framework
-- **Real-time streaming UI** — token-by-token rendering
-- **Event-driven architecture** — Tauri events cho IPC
+**DevOps** — GitHub Actions CI/CD, multi-platform auto-build
 
 ---
 

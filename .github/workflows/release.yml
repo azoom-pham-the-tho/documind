@@ -92,6 +92,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Tesseract env for kreuzberg OCR build
           TESSDATA_PREFIX: ${{ github.workspace }}/src-tauri/tessdata
+          # Ad-hoc signing for macOS (no Apple Developer cert needed)
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "DocuMind ${{ github.ref_name }}"
@@ -110,7 +112,7 @@ jobs:
 
             ### ⚡ Cài đặt
             1. Tải file phù hợp với hệ điều hành
-            2. macOS: Mở `.dmg` → kéo vào Applications
+            2. macOS: Mở `.dmg` → kéo vào Applications → Lần đầu mở: chuột phải → Open
             3. Windows: Chạy `.msi` installer
             4. Mở app → Nhập API key → Thêm thư mục tài liệu
           releaseDraft: false
